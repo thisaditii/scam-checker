@@ -5,8 +5,6 @@ import requests
 import whois
 from bs4 import BeautifulSoup
 
-
-# ---------- Tool 1: Extract emails, URLs, phone numbers ----------
 def extract_entities(text: str) -> dict:
     emails = re.findall(r"[\w\.-]+@[\w\.-]+\.\w+", text)
     urls = re.findall(r"https?://[^\s]+|www\.[^\s]+", text)
@@ -14,7 +12,6 @@ def extract_entities(text: str) -> dict:
     return {"emails": emails, "urls": urls, "phones": phones}
 
 
-# ---------- Tool 2: How old is the domain? ----------
 def check_domain_age(domain: str) -> dict:
     try:
         w = whois.whois(domain)
@@ -29,8 +26,6 @@ def check_domain_age(domain: str) -> dict:
     except Exception as e:
         return {"domain": domain, "age_days": None, "note": f"lookup failed: {e}"}
 
-
-# ---------- Tool 3: Check the sender email ----------
 FREE_PROVIDERS = {"gmail.com", "yahoo.com", "outlook.com", "hotmail.com", "rediffmail.com"}
 
 def check_email_domain(email: str, company_site: str = "") -> dict:
@@ -42,7 +37,6 @@ def check_email_domain(email: str, company_site: str = "") -> dict:
     }
 
 
-# ---------- Tool 4: Scan for scam phrases ----------
 RED_FLAGS = {
     "asks_for_money": ["registration fee", "security deposit", "refundable",
                        "training fee", "processing fee", "pay rs", "pay ₹"],
@@ -58,19 +52,25 @@ def scan_red_flags(text: str) -> dict:
     return {k: v for k, v in found.items() if v}
 
 
-# ---------- Tool 5: Check the company website ----------
+HEADERS = {
+    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
+                  "(KHTML, like Gecko) Chrome/124.0 Safari/537.36",
+    "Accept-Language": "en-US,en;q=0.9",
+}
+
 def check_website(url: str) -> dict:
     if not url.startswith("http"):
         url = "https://" + url
     try:
-        r = requests.get(url, timeout=8, headers={"User-Agent": "Mozilla/5.0"})
+        r = requests.get(url, timeout=8, headers=HEADERS)
         soup = BeautifulSoup(r.text, "html.parser")
         text = soup.get_text(" ").lower()
+        blocked = r.status_code in (401, 403, 429)
         return {
             "reachable": r.status_code == 200,
             "status": r.status_code,
-            "has_careers_page": "career" in text or "jobs" in text,
-            "has_contact": "contact" in text,
+            "has_careers_page": None if blocked else ("career" in text or "jobs" in text),
+            "has_contact": None if blocked else ("contact" in text),
             "title": soup.title.string.strip() if soup.title and soup.title.string else None,
         }
     except Exception as e:
