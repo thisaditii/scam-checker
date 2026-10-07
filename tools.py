@@ -52,6 +52,62 @@ def scan_red_flags(text: str) -> dict:
     return {k: v for k, v in found.items() if v}
 
 
+
+SENSITIVE = ["aadhaar", "aadhar", "pan card", "bank account", "atm pin",
+             "otp", "cvv", "password", "debit card"]
+PAY_WORDS = ["upi", "courier charges", "kyc", "certificate charge",
+             "processing charge", "send rs", "transfer rs"]
+BRANDS = {"amazon": "amazon.", "flipkart": "flipkart.", "infosys": "infosys.",
+          "accenture": "accenture.", "google": "google.", "tcs": "tcs.",
+          "wipro": "wipro.", "microsoft": "microsoft.", "cisco": "cisco.",
+          "techmahindra": "techmahindra.", "ibm": "ibm.", "adobe": "adobe."}
+BAD_TLDS = (".xyz", ".online", ".top", ".site", ".click", ".buzz")
+NEGATIONS = ["never", "do not", "don't", "beware", "no fee", "no fees", "not charge"]
+
+
+def extra_signals(text: str, email_domains: list) -> dict:
+    t = text.lower()
+    out = {}
+
+    sens = [w for w in SENSITIVE if re.search(rf"\b{re.escape(w)}\b", t)]
+    if sens:
+        out["asks_sensitive_data"] = sens
+
+    pay = [w for w in PAY_WORDS if w in t]
+    if re.search(r"\b(pay|send|deposit|transfer)\s+(rs\.?|₹|inr)\s*\d+", t):
+        pay.append("pay-amount pattern")
+    if pay:
+        out["payment_request"] = pay
+
+    if re.search(r"\b\d{2,3}\s?k\b.*\b(per month|monthly|a month)\b", t) or \
+       re.search(r"\$\s?\d+\s*/\s*(hr|hour)", t):
+        out["unrealistic_pay"] = ["high pay claim"]
+
+    fake = []
+    for d in email_domains:
+        for brand, real in BRANDS.items():
+            if brand in d and not d.startswith(real) and f".{real}" not in d \
+               and not d.endswith(real.rstrip(".") + ".com"):
+                fake.append(d)
+    if fake:
+        out["lookalike_domain"] = fake
+
+    bad = [d for d in email_domains if d.endswith(BAD_TLDS)]
+    bad += [u for u in re.findall(r"[\w\.-]+\.(?:xyz|online|top|site|click|buzz)", t)]
+    if bad:
+        out["suspicious_tld"] = list(set(bad))
+
+    return out
+
+
+def has_negation_near(text: str, phrase: str) -> bool:
+    t = text.lower()
+    i = t.find(phrase)
+    if i == -1:
+        return False
+    window = t[max(0, i - 60): i + len(phrase) + 20]
+    return any(n in window for n in NEGATIONS)
+
 HEADERS = {
     "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
                   "(KHTML, like Gecko) Chrome/124.0 Safari/537.36",

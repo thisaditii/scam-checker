@@ -10,7 +10,7 @@ from schemas import LLMOutput, ScamReport, Evidence
 
 load_dotenv()
 
-MODEL_NAME = "openai/gpt-oss-120b"   
+MODEL_NAME = "openai/gpt-oss-120b"
 llm = ChatGroq(model=MODEL_NAME, temperature=0)
 structured_llm = llm.with_structured_output(LLMOutput)
 
@@ -20,6 +20,8 @@ def base_domain(value: str) -> str:
     ext = tldextract.extract(value)
     return f"{ext.domain}.{ext.suffix}" if ext.domain and ext.suffix else ""
 
+
+# ---------- Step A: run all tools (uses no tokens) ----------
 def run_tools(message: str) -> dict:
     message = message[:3000]
     entities = t.extract_entities(message)
@@ -58,8 +60,23 @@ def run_tools(message: str) -> dict:
         if e_dom and u_dom and e_dom != u_dom and e_dom not in t.FREE_PROVIDERS:
             findings["email_site_mismatch"] = True
 
+    # ----- NEW: extra signals -----
+    email_domains = [e.split("@")[-1].lower() for e in emails]
+    findings["extra"] = t.extra_signals(message, email_domains)
+
+    # ignore money phrases that appear inside warnings ("never charges any registration fee")
+    rf = findings["red_flags"]
+    if "asks_for_money" in rf:
+        kept = [p for p in rf["asks_for_money"] if not t.has_negation_near(message, p)]
+        if kept:
+            rf["asks_for_money"] = kept
+        else:
+            del rf["asks_for_money"]
+
     return findings
 
+
+# ---------- Step B: rule-based score (uses no tokens) ----------
 def rule_score(f: dict):
     score = 0
     reasons = []
@@ -100,11 +117,24 @@ def rule_score(f: dict):
     if ws:
         status = ws.get("status")
         if status in (401, 403, 429):
-            pass  
+            pass  # site blocks bots, so this tells us nothing
         elif not ws.get("reachable"):
             add(15, "Company website could not be reached", "MEDIUM", "website_check")
         elif not ws.get("has_careers_page") and not ws.get("has_contact"):
             add(5, "Website has no careers or contact page", "LOW", "website_check")
+
+    # ----- NEW: extra signals -----
+    ex = f.get("extra", {})
+    if "asks_sensitive_data" in ex:
+        add(40, f"Asks for sensitive data: {', '.join(ex['asks_sensitive_data'])}", "HIGH", "extra_signals")
+    if "payment_request" in ex:
+        add(35, f"Payment request: {', '.join(ex['payment_request'])}", "HIGH", "extra_signals")
+    if "lookalike_domain" in ex:
+        add(30, f"Lookalike company domain: {', '.join(ex['lookalike_domain'])}", "HIGH", "extra_signals")
+    if "suspicious_tld" in ex:
+        add(20, "Suspicious domain ending", "MEDIUM", "extra_signals")
+    if "unrealistic_pay" in ex:
+        add(15, "Unrealistically high pay claim", "MEDIUM", "extra_signals")
 
     return min(score, 100), reasons
 
@@ -117,6 +147,7 @@ def verdict_from_score(score: int) -> str:
     return "LIKELY_GENUINE"
 
 
+# ---------- Step C: ONE LLM call to write evidence + advice ----------
 def analyze(message: str, retries: int = 3):
     findings = run_tools(message)
     score, reasons = rule_score(findings)
@@ -140,7 +171,7 @@ def analyze(message: str, retries: int = 3):
         except Exception:
             time.sleep(2)
 
-    if llm_out is None:   
+    if llm_out is None:   # fallback so the app never crashes
         evidence = [Evidence(**r) for r in reasons[:6]]
         advice = ("Do not pay any money or share documents. Verify the company on its "
                   "official website and contact HR through the official email.")
@@ -149,3 +180,10 @@ def analyze(message: str, retries: int = 3):
 
     report = ScamReport(verdict=verdict, risk_score=score, evidence=evidence, advice=advice)
     return report, findings
+
+
+def analyze_rules_only(message: str):
+    """No LLM call. Used for evaluation (free and fast)."""
+    findings = run_tools(message)
+    score, reasons = rule_score(findings)
+    return verdict_from_score(score), score, reasons
