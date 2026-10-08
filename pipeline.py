@@ -196,15 +196,22 @@ def rule_score(f: dict):
         add(35, "Internship or training sold for a fee", "HIGH", "extra_signals")
 
     # ----- signals from the LLM extraction chain -----
+    # ----- signals from the LLM extraction chain -----
     lx = f.get("llm_extract")
     if lx:
+        base_score = score   # score from all the non-LLM rules so far
+
         if lx.get("asks_for_money") and "asks_for_money" not in rf and "payment_request" not in ex:
             add(35, "AI reading: the message asks the candidate to pay money", "HIGH", "llm_extract")
-        if lx.get("asks_for_documents") and "asks_sensitive_data" not in ex:
+
+        # documents: only count when another warning sign already exists
+        if lx.get("asks_for_documents") and "asks_sensitive_data" not in ex and base_score >= 15:
             add(25, "AI reading: the message asks for ID or personal documents", "MEDIUM", "llm_extract")
 
         company = (lx.get("company_name") or "").lower()
-        if company and ec and not ec["is_free_provider"]:
+        institutional = lx.get("sender_type") == "agency_or_platform" or (
+            ec and ec["email_domain"].endswith((".edu", ".edu.in", ".ac.in", ".gov.in", ".ac.uk")))
+        if company and ec and not ec["is_free_provider"] and not institutional:
             dom = ec["email_domain"].replace("-", "")
             tokens = [w for w in re.findall(r"[a-z0-9]+", company)
                       if len(w) > 3 and w not in GENERIC_WORDS]
