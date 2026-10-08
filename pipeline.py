@@ -134,7 +134,11 @@ def rule_score(f: dict):
     if "suspicious_tld" in ex:
         add(20, "Suspicious domain ending", "MEDIUM", "extra_signals")
     if "unrealistic_pay" in ex:
-        add(15, "Unrealistically high pay claim", "MEDIUM", "extra_signals")
+        add(30, "Unrealistically high pay claim", "MEDIUM", "extra_signals")
+    if "equipment_check_scam" in ex:
+        add(40, f"Equipment-check scam pattern: {', '.join(ex['equipment_check_scam'])}", "HIGH", "extra_signals")
+    if "paid_internship_offer" in ex:
+        add(35, "Internship or training sold for a fee", "HIGH", "extra_signals")
 
     return min(score, 100), reasons
 

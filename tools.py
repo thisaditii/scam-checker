@@ -5,6 +5,7 @@ import requests
 import whois
 from bs4 import BeautifulSoup
 
+
 def extract_entities(text: str) -> dict:
     emails = re.findall(r"[\w\.-]+@[\w\.-]+\.\w+", text)
     urls = re.findall(r"https?://[^\s]+|www\.[^\s]+", text)
@@ -26,7 +27,9 @@ def check_domain_age(domain: str) -> dict:
     except Exception as e:
         return {"domain": domain, "age_days": None, "note": f"lookup failed: {e}"}
 
+
 FREE_PROVIDERS = {"gmail.com", "yahoo.com", "outlook.com", "hotmail.com", "rediffmail.com"}
+
 
 def check_email_domain(email: str, company_site: str = "") -> dict:
     domain = email.split("@")[-1].lower()
@@ -46,11 +49,11 @@ RED_FLAGS = {
     "urgency": ["urgent", "within 24 hours", "immediately", "last chance"],
 }
 
+
 def scan_red_flags(text: str) -> dict:
     t = text.lower()
     found = {cat: [p for p in phrases if p in t] for cat, phrases in RED_FLAGS.items()}
     return {k: v for k, v in found.items() if v}
-
 
 
 SENSITIVE = ["aadhaar", "aadhar", "pan card", "bank account", "atm pin",
@@ -64,25 +67,40 @@ BRANDS = {"amazon": "amazon.", "flipkart": "flipkart.", "infosys": "infosys.",
 BAD_TLDS = (".xyz", ".online", ".top", ".site", ".click", ".buzz")
 NEGATIONS = ["never", "do not", "don't", "beware", "no fee", "no fees", "not charge"]
 
+CHECK_SCAM_PHRASES = [
+    "reimbursement check", "cash for the purchase", "purchase of the equipment",
+    "approved vendors", "front and back", "copy of a valid photo id",
+    "buy equipment", "office supplies and software",
+]
+
 
 def extra_signals(text: str, email_domains: list) -> dict:
     t = text.lower()
     out = {}
 
+    # Sensitive data requests
     sens = [w for w in SENSITIVE if re.search(rf"\b{re.escape(w)}\b", t)]
     if sens:
         out["asks_sensitive_data"] = sens
 
+    # Payment requests
     pay = [w for w in PAY_WORDS if w in t]
     if re.search(r"\b(pay|send|deposit|transfer)\s+(rs\.?|₹|inr)\s*\d+", t):
         pay.append("pay-amount pattern")
     if pay:
         out["payment_request"] = pay
 
+    # Unrealistic pay claims
+    pay_claims = []
     if re.search(r"\b\d{2,3}\s?k\b.*\b(per month|monthly|a month)\b", t) or \
        re.search(r"\$\s?\d+\s*/\s*(hr|hour)", t):
-        out["unrealistic_pay"] = ["high pay claim"]
+        pay_claims.append("high pay claim")
+    if re.search(r"\$\s?\d{1,3},?\d{3}\s*(per month|/month|monthly)", t):
+        pay_claims.append("high dollar pay claim")
+    if pay_claims:
+        out["unrealistic_pay"] = pay_claims
 
+    # Lookalike domains
     fake = []
     for d in email_domains:
         for brand, real in BRANDS.items():
@@ -92,10 +110,23 @@ def extra_signals(text: str, email_domains: list) -> dict:
     if fake:
         out["lookalike_domain"] = fake
 
+    # Suspicious TLDs
     bad = [d for d in email_domains if d.endswith(BAD_TLDS)]
-    bad += [u for u in re.findall(r"[\w\.-]+\.(?:xyz|online|top|site|click|buzz)", t)]
+    bad += re.findall(r"[\w\.-]+\.(?:xyz|online|top|site|click|buzz)", t)
     if bad:
         out["suspicious_tld"] = list(set(bad))
+
+    # Fake equipment / reimbursement check scam
+    # (needs 2+ matching phrases to avoid false positives like "front and back end")
+    check_scam = [w for w in CHECK_SCAM_PHRASES if w in t]
+    if len(check_scam) >= 2:
+        out["equipment_check_scam"] = check_scam
+
+    # Paid internship / training program
+    paid_program = re.search(r"(only|just)\s+(rs\.?|₹)\s*\d+", t) and \
+        any(w in t for w in ["training", "internship program", "limited seats", "special offer"])
+    if paid_program:
+        out["paid_internship_offer"] = ["fee-based internship"]
 
     return out
 
@@ -108,11 +139,13 @@ def has_negation_near(text: str, phrase: str) -> bool:
     window = t[max(0, i - 60): i + len(phrase) + 20]
     return any(n in window for n in NEGATIONS)
 
+
 HEADERS = {
     "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
                   "(KHTML, like Gecko) Chrome/124.0 Safari/537.36",
     "Accept-Language": "en-US,en;q=0.9",
 }
+
 
 def check_website(url: str) -> dict:
     if not url.startswith("http"):
