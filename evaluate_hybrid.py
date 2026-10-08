@@ -11,7 +11,7 @@ for _, r in df.iterrows():
     verdict, score, reasons, used = analyze_hybrid(r["text"])
     if used:
         llm_calls += 1
-        time.sleep(6)   
+        time.sleep(10)   
     predicted = "scam" if verdict in ("LIKELY_SCAM", "SUSPICIOUS") else "genuine"
     rows.append({"text": r["text"], "actual": r["label"],
                  "predicted": predicted, "verdict": verdict, "score": score})
