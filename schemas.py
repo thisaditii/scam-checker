@@ -18,3 +18,8 @@ class ScamReport(BaseModel):
     risk_score: int = Field(ge=0, le=100)
     evidence: list[Evidence]
     advice: str
+
+    
+class SecondOpinion(BaseModel):
+    is_suspicious: bool
+    reason: str = Field(description="One sentence explaining why")    

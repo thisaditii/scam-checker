@@ -6,13 +6,14 @@ from dotenv import load_dotenv
 from langchain_groq import ChatGroq
 
 import tools as t
-from schemas import LLMOutput, ScamReport, Evidence
+from schemas import LLMOutput, ScamReport, Evidence, SecondOpinion
 
 load_dotenv()
 
 MODEL_NAME = "openai/gpt-oss-120b"
 llm = ChatGroq(model=MODEL_NAME, temperature=0)
 structured_llm = llm.with_structured_output(LLMOutput)
+second_llm = llm.with_structured_output(SecondOpinion)
 
 
 def base_domain(value: str) -> str:
@@ -60,7 +61,7 @@ def run_tools(message: str) -> dict:
         if e_dom and u_dom and e_dom != u_dom and e_dom not in t.FREE_PROVIDERS:
             findings["email_site_mismatch"] = True
 
-    # ----- NEW: extra signals -----
+    # ----- extra signals -----
     email_domains = [e.split("@")[-1].lower() for e in emails]
     findings["extra"] = t.extra_signals(message, email_domains)
 
@@ -123,7 +124,7 @@ def rule_score(f: dict):
         elif not ws.get("has_careers_page") and not ws.get("has_contact"):
             add(5, "Website has no careers or contact page", "LOW", "website_check")
 
-    # ----- NEW: extra signals -----
+    # ----- extra signals -----
     ex = f.get("extra", {})
     if "asks_sensitive_data" in ex:
         add(40, f"Asks for sensitive data: {', '.join(ex['asks_sensitive_data'])}", "HIGH", "extra_signals")
@@ -191,3 +192,34 @@ def analyze_rules_only(message: str):
     findings = run_tools(message)
     score, reasons = rule_score(findings)
     return verdict_from_score(score), score, reasons
+
+
+# ---------- Hybrid: rules first, LLM second opinion for low scores ----------
+def analyze_hybrid(message: str):
+    """Rules first. If the score is low, ask the LLM for a second opinion."""
+    verdict, score, reasons = analyze_rules_only(message)
+    used_llm = False
+    if score < 30:
+        used_llm = True
+        prompt = (
+            "You are checking a job or internship message sent to a student in India. "
+            "Decide whether it looks like a scam. Signs of a scam: a recruiter writing "
+            "from a free email address (gmail, yahoo) while claiming to represent a "
+            "large organisation, a vague or unknown company, unrealistic pay, an offer "
+            "with no application or interview, a request for money, documents or ID, "
+            "or an interview arranged through a chat app. Only answer suspicious if you "
+            "can point to a specific sign in the text.\n\n"
+            f"Message:\n{message[:2000]}"
+        )
+        for _ in range(3):
+            try:
+                out = second_llm.invoke(prompt)
+                if out.is_suspicious:
+                    score = 30
+                    verdict = "SUSPICIOUS"
+                    reasons.append({"signal": f"LLM second opinion: {out.reason}",
+                                    "severity": "MEDIUM", "source_tool": "llm_review"})
+                break
+            except Exception:
+                time.sleep(2)
+    return verdict, score, reasons, used_llm

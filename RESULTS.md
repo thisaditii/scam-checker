@@ -7,6 +7,7 @@
 | Fresh set 1 (10), before tuning | 50.0% | 0.0% | 0.0% | unseen |
 | Fresh set 1 (10), after tuning | 90.0% | 80.0% | 0.0% | tuned on this set |
 | Fresh set 2 (10), rules v3 | 60.0% | 20.0% | 0.0% | unseen, fair number |
+| Fresh set 2 (10), rules + LLM second opinion | 90.0% | 80.0% | 0.0% | prompt written after seeing this set |
 
 Notes:
 - Rules were tuned after looking at failures on the main set and fresh set 1.
