@@ -30,11 +30,17 @@ extract_chain = ChatPromptTemplate.from_messages([
 opinion_chain = ChatPromptTemplate.from_messages([
     ("system",
      "You are checking a job or internship message sent to a student in India. "
-     "Decide whether it looks like a scam. Signs of a scam: a recruiter writing from a "
-     "free email address (gmail, yahoo) while claiming to represent a large organisation, "
-     "a vague or unknown company, unrealistic pay, an offer with no application or "
-     "interview, a request for money, documents or ID, or an interview arranged through "
-     "a chat app. Only answer suspicious if you can point to a specific sign in the text."),
+     "Decide whether it looks like a scam. IMPORTANT: real companies often send mail "
+     "through recruiting platforms or their own secondary domains (for example LinkedIn, "
+     "Workday, Greenhouse, Lever, Yello, SmartRecruiters, Ashby, hackerrankforwork). "
+     "A sender domain that differs from the company name is NOT a warning sign by itself. "
+     "Automated emails, job alerts, application confirmations, assessment invitations and "
+     "rejections are NORMAL, even when short or generic. A message being vague or lacking "
+     "company details is NOT a warning sign. "
+     "Answer suspicious only if there is a concrete sign: a recruiter on a free email "
+     "(gmail, yahoo) claiming to be a large company, a demand for money, documents or ID "
+     "to be sent, unrealistic pay, an offer with no application or interview, or an "
+     "interview via a chat app."),
     ("human", "{message}"),
 ]) | llm.with_structured_output(SecondOpinion)
 
@@ -130,7 +136,8 @@ def run_tools(message: str) -> dict:
 GENERIC_WORDS = {"limited", "private", "technologies", "technology", "solutions", "group",
                  "services", "airways", "global", "india", "company", "team", "talent"}
 PLATFORM_DOMAINS = ("greenhouse", "smartrecruiters", "ashbyhq", "myworkday", "lever.co",
-                    "unstop", "foundit", "naukri", "linkedin", "workable", "icims")
+                    "unstop", "foundit", "naukri", "linkedin", "workable", "icims",
+                    "yello", "hackerrankforwork", "taleo", "jobvite", "amazon.jobs")
 
 
 def rule_score(f: dict):
@@ -172,8 +179,10 @@ def rule_score(f: dict):
     ws = f["website"]
     if ws:
         status = ws.get("status")
-        if status in (401, 403, 429):
-            pass
+        sender_dom = (ec["email_domain"] if ec else "").replace("-", "")
+        sender_on_platform = any(p in sender_dom for p in PLATFORM_DOMAINS)
+        if status in (401, 403, 429) or sender_on_platform:
+            pass  # blocked site or known recruiting platform: tells us nothing
         elif not ws.get("reachable"):
             add(15, "Company website could not be reached", "MEDIUM", "website_check")
         elif not ws.get("has_careers_page") and not ws.get("has_contact"):
@@ -195,7 +204,6 @@ def rule_score(f: dict):
     if "paid_internship_offer" in ex:
         add(35, "Internship or training sold for a fee", "HIGH", "extra_signals")
 
-    # ----- signals from the LLM extraction chain -----
     # ----- signals from the LLM extraction chain -----
     lx = f.get("llm_extract")
     if lx:
