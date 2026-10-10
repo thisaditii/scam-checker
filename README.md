@@ -2,9 +2,9 @@
 
 Students get fake internship and job offers that ask for fees, documents or bank details. Paste an offer message (or upload the offer letter as a PDF) and get a risk verdict with evidence and advice **before** you reply or pay.
 
-**Live demo:** <add link after deployment>
+**Live demo:** [http://3.27.3.252:8501](http://3.27.3.252:8501)
 
-![scam](ss/scam.png)
+*Hosted on AWS EC2 with Docker. The link is HTTP only, so please don't paste real personal details. If the link is down, run it locally using the steps below.*
 
 ## How it works
 
@@ -70,7 +70,7 @@ Design choices:
 </p>
 
 ## Tech stack
-Python · LangChain · Groq (`openai/gpt-oss-120b`) · Pydantic · Streamlit · python-whois · BeautifulSoup · tldextract · pypdf · pytest
+Python · LangChain · Groq (`openai/gpt-oss-120b`) · Pydantic · Streamlit · python-whois · BeautifulSoup · tldextract · pypdf · pytest · Docker · AWS EC2
 
 ## Results
 
@@ -123,14 +123,22 @@ Rules never falsely accuse a company but miss polished scams. The LLM catches mo
 
 The headline numbers come from the clean set, which is entirely real. Personal names, phone numbers and personal mailboxes were removed; company domains were kept because the tools check them. Company names are used only as realistic examples. The synthetic messages are fictional and do not come from the companies named.
 
-## Limitations
-- Small test sets (10-45 messages each).
-- Rules and prompts were tuned on earlier sets; only the clean set is a fair estimate.
-- Polished scams with no payment request or odd domain are often missed.
-- The platform allowlist is hand-written.
-- WHOIS can fail or be blocked, and some big sites block bots. These are treated as "unknown", not suspicious.
-- PDF upload works for text PDFs only (no OCR) and was tested on a few letters, not evaluated.
-- Advisory tool, not a guarantee.
+## Limitations and future work
+
+**Evaluation**
+- The headline number comes from 14 unseen real messages, so one message moves accuracy by about 7 points. Next step: collect 50+ real messages, using the feedback buttons as a source.
+- Rules and prompts were tuned on earlier sets, so only the clean set is a fair estimate. Next step: keep a locked test set that is never used for tuning.
+
+**Detection**
+- Polished scams with no payment request, odd domain or sensitive-data ask are often missed (for example Beacon Hill, Pacifica). Next step: add sender-reputation data and compare against known scam reports.
+- The recruiting-platform allowlist is hand-written, so legitimate senders outside it (such as Keka) can be flagged. Next step: replace it with a maintained list of platform sending domains.
+
+**Data sources**
+- WHOIS can fail or be blocked, and some large sites block bots. These are treated as "unknown", not as suspicious, so they never raise a score by themselves.
+- PDF upload supports text PDFs only (no OCR) and was tried on a few letters, not evaluated. Next step: add OCR for scanned letters and image screenshots.
+
+**Scope**
+- This is an advisory tool. It cannot confirm that an offer is genuine, so users should still verify the company on its official website.
 
 ## Run locally
 
@@ -157,6 +165,15 @@ python evaluate.py data/test_set.csv
 python evaluate_hybrid.py data/final_set2.csv
 ```
 
+## Run with Docker
+
+```bash
+docker build -t scam-checker .
+docker run -d -p 8501:8501 --env-file .env scam-checker
+```
+
+The live demo runs this way on an AWS EC2 instance (ap-southeast-2).
+
 ## Project structure
 
 ```
@@ -166,6 +183,7 @@ tools.py          WHOIS, email, phrase and pattern checks
 schemas.py        Pydantic models
 evaluate*.py      evaluation scripts
 test_rules.py     unit tests
+Dockerfile        container image for deployment
 data/             test sets
 ss/               screenshots
 prototype/        first version: a tool-calling LangChain agent
