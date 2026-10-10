@@ -1,0 +1,10 @@
+venv/
+.env
+__pycache__/
+.pytest_cache/
+.git/
+ss/
+scripts/
+prototype/
+data/feedback.csv
+data/results.csv
