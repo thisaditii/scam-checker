@@ -112,16 +112,16 @@ SOURCE_NAME = {
 
 # ---------------- Sidebar ----------------
 with st.sidebar:
-    st.markdown("### 🛡️ Scam Checker")
+    st.markdown("### Scam Checker")
     left = max(MAX_CHECKS - st.session_state.count, 0)
     st.metric("Checks left this session", f"{left} / {MAX_CHECKS}")
     st.markdown("---")
     st.markdown("**How it works**")
     st.markdown(
-        "1. 🔍 Checks sender email, domain age and website\n"
-        "2. 📝 Scans for scam phrases and patterns\n"
-        "3. 🤖 AI reads the message for a second opinion\n"
-        "4. 📊 You get a score, evidence and advice"
+        "1. Checks sender email, domain age and website\n"
+        "2. Scans for scam phrases and patterns\n"
+        "3. AI reads the message for a second opinion\n"
+        "4. You get a score, evidence and advice"
     )
     st.markdown("---")
     st.caption("Advisory tool, not a guarantee. Always verify the company on its official website.")
@@ -145,7 +145,7 @@ else:
     uploaded = st.file_uploader("Offer letter (PDF)", type=["pdf"],
                                 label_visibility="collapsed")
 
-sender_email = st.text_input("📧 Sender email (optional)",
+sender_email = st.text_input("📧 Sender email",
                              placeholder="hr@company.com, helps the email check")
 st.caption("🔒 Your text and files are not stored unless you choose to share them in the feedback step.")
 
