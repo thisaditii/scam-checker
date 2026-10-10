@@ -1,6 +1,7 @@
 import csv
 import html
 import os
+import uuid
 from datetime import datetime
 
 import streamlit as st
@@ -13,6 +14,7 @@ st.set_page_config(page_title="Job Scam Checker", page_icon="🛡️", layout="c
 MAX_CHECKS = 5
 MAX_FOLLOWUPS = 5
 FEEDBACK_FILE = "data/feedback.csv"
+USAGE_FILE = "data/usage/usage.csv"
 
 # ---------------- Style ----------------
 st.markdown("""
@@ -56,6 +58,26 @@ for key, default in [("count", 0), ("result", None), ("chat", []),
 
 
 # ---------------- Helpers ----------------
+def log_event(event, detail=""):
+    """Anonymous usage log: time, random session id, event. No IP, no message text."""
+    try:
+        os.makedirs("data/usage", exist_ok=True)
+        is_new = not os.path.exists(USAGE_FILE)
+        with open(USAGE_FILE, "a", newline="", encoding="utf-8") as f:
+            w = csv.writer(f)
+            if is_new:
+                w.writerow(["time", "session", "event", "detail"])
+            w.writerow([datetime.now().isoformat(timespec="seconds"),
+                        st.session_state.sid, event, detail])
+    except Exception:
+        pass   # logging must never break the app
+
+
+if "sid" not in st.session_state:
+    st.session_state.sid = uuid.uuid4().hex[:8]
+    log_event("visit")
+
+
 def pdf_to_text(file) -> str:
     reader = PdfReader(file)
     return "\n".join((p.extract_text() or "") for p in reader.pages[:6])
@@ -149,6 +171,7 @@ if st.button("🔎 Check this offer", type="primary"):
         st.session_state.count += 1
         with st.spinner("Investigating..."):
             report, findings = analyze(text)
+        log_event("check", report.verdict)
         st.session_state.result = (report, findings)
         st.session_state.message = text
         st.session_state.chat = []
@@ -209,6 +232,7 @@ if st.session_state.result:
         if choice:
             save_feedback(report.verdict, report.risk_score, choice,
                           st.session_state.message[:3000] if share else "")
+            log_event("feedback", choice)
             st.session_state.feedback_given = True
             st.rerun()
 
@@ -227,6 +251,7 @@ if st.session_state.result:
             with st.spinner("Thinking..."):
                 answer = follow_up(question, report, st.session_state.message,
                                    st.session_state.chat)
+            log_event("followup")
             st.session_state.chat.append(("user", question))
             st.session_state.chat.append(("assistant", answer))
             st.rerun()
