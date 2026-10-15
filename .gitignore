@@ -5,3 +5,5 @@ __pycache__/
 data/results.csv
 data/feedback.csv
 data/usage/
+data/whois_cache.json
+experiments/raw/

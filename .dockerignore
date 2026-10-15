@@ -8,3 +8,6 @@ scripts/
 prototype/
 data/feedback.csv
 data/results.csv
+data/whois_cache.json
+experiments/raw/
+experiments/

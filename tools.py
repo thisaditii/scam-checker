@@ -1,3 +1,5 @@
+import json
+import os
 import re
 from datetime import datetime
 
@@ -13,7 +15,31 @@ def extract_entities(text: str) -> dict:
     return {"emails": emails, "urls": urls, "phones": phones}
 
 
+WHOIS_CACHE_FILE = "data/whois_cache.json"
+
+
+def _load_whois_cache():
+    try:
+        with open(WHOIS_CACHE_FILE, encoding="utf-8") as f:
+            return json.load(f)
+    except Exception:
+        return {}
+
+
+def _save_whois_cache(cache):
+    try:
+        os.makedirs("data", exist_ok=True)
+        with open(WHOIS_CACHE_FILE, "w", encoding="utf-8") as f:
+            json.dump(cache, f)
+    except Exception:
+        pass
+
+
 def check_domain_age(domain: str) -> dict:
+    cache = _load_whois_cache()
+    if domain in cache:   # cache stores the creation date, so age stays correct over time
+        created = datetime.fromisoformat(cache[domain])
+        return {"domain": domain, "age_days": (datetime.now() - created).days}
     try:
         w = whois.whois(domain)
         created = w.creation_date
@@ -22,8 +48,9 @@ def check_domain_age(domain: str) -> dict:
         if not created:
             return {"domain": domain, "age_days": None, "note": "unknown"}
         created = created.replace(tzinfo=None)
-        age_days = (datetime.now() - created).days
-        return {"domain": domain, "age_days": age_days}
+        cache[domain] = created.isoformat()   # only successful lookups are cached
+        _save_whois_cache(cache)
+        return {"domain": domain, "age_days": (datetime.now() - created).days}
     except Exception as e:
         return {"domain": domain, "age_days": None, "note": f"lookup failed: {e}"}
 
