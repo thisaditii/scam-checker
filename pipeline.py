@@ -1,3 +1,4 @@
+from guardrails import sanitize, detect_injection
 import json
 import re
 import time
@@ -81,7 +82,7 @@ def base_domain(value: str) -> str:
 
 # ---------- Step A: run all tools (uses no tokens) ----------
 def run_tools(message: str) -> dict:
-    message = message[:3000]
+    message = sanitize(message)[:3000]
     entities = t.extract_entities(message)
     entities["urls"] = [u.rstrip(".,)") for u in entities["urls"]]
 
@@ -128,6 +129,10 @@ def run_tools(message: str) -> dict:
             rf["asks_for_money"] = kept
         else:
             del rf["asks_for_money"]
+
+    inj = detect_injection(message)
+    if inj:
+        findings["extra"]["prompt_injection"] = inj
 
     return findings
 
@@ -203,6 +208,9 @@ def rule_score(f: dict):
         add(40, f"Equipment-check scam pattern: {', '.join(ex['equipment_check_scam'])}", "HIGH", "extra_signals")
     if "paid_internship_offer" in ex:
         add(35, "Internship or training sold for a fee", "HIGH", "extra_signals")
+    if "prompt_injection" in ex:
+        add(60, "Message tries to give instructions to the checker (prompt-injection pattern)",
+            "HIGH", "extra_signals")
 
     # ----- signals from the LLM extraction chain -----
     lx = f.get("llm_extract")
@@ -241,6 +249,7 @@ def verdict_from_score(score: int) -> str:
 
 # ---------- Rules + LLM assessment (shared by the app and the evaluation) ----------
 def assess(message: str):
+    message = sanitize(message)
     findings = run_tools(message)
 
     info = call(extract_chain, {"message": message[:2000]})
@@ -288,7 +297,7 @@ def follow_up(question: str, report, message: str, history: list):
             for r, t_ in history]
     out = call(chat_chain, {
         "report": report.model_dump_json(),
-        "message": message[:1500],
+        "message": sanitize(message)[:1500],
         "history": msgs,
         "question": question,
     })
