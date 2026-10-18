@@ -49,3 +49,9 @@ Rules never falsely accuse a company but miss polished scams. The LLM catches mo
 - Fresh set 2 was used to shape the LLM prompt, so its hybrid numbers are slightly optimistic.
 - The clean set (14) was not tuned on. Do not change rules or prompts and then quote its number as unseen.
 - Datasets are a mix of real messages (personal details removed) and synthetic ones. See the README for counts.
+
+## Locked set (pre-registered, 17 Oct 2026)
+- 42 real messages: 21 scam / 21 genuine, 42 with a sender email.
+- Headline system: hand-tuned rules + LLM chains, as deployed (evaluate_hybrid.py). Chosen before testing.
+- Comparison: L2 logistic regression trained on the 95 dev messages, threshold chosen by cross-validation on dev data only.
+- Rules, prompts, features and threshold are frozen. No changes after seeing results. Each scorer is run once.
