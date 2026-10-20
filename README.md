@@ -6,13 +6,17 @@ Students get fake internship and job offers that ask for fees, documents or bank
 
 *Hosted on AWS EC2 with Docker. The link is HTTP only, so please don't paste real personal details. If the link is down, run it locally using the steps below.*
 
+**Headline result:** on a locked set of 42 unseen real messages (written down before testing), the tool caught **15 of 21 scams with 0 false alarms**. Small sample, so treat it as indicative. Details in [RESULTS.md](RESULTS.md).
+
 ## How it works
 
 ```
 Message / PDF
    │
+   ├─► Input shielding: sanitise hidden characters, detect prompt injection
+   │
    ├─► Deterministic checks (no LLM)
-   │     sender email · WHOIS domain age · website check · scam phrases ·
+   │     sender email · WHOIS domain age (cached) · website check · scam phrases ·
    │     sensitive-data requests · payment patterns · lookalike domains
    │
    ├─► LangChain chain 1: structured extraction
@@ -28,9 +32,10 @@ Message / PDF
 
 Design choices:
 - **Rules decide the score.** Results are consistent, cheap and explainable.
-- **The LLM adds language understanding**, catching polished scams that phrase rules miss.
-- **Corroboration rules** stop the LLM alone from flagging weak signals (for example, a document request is only counted when another warning sign exists).
-- **Every LLM call has retries and a fallback**, so the app never crashes on an API error.
+- **The LLM adds language understanding**, catching polished scams that phrase rules miss. It can only add points, never lower a rule score.
+- **Corroboration rules** stop the LLM alone from flagging weak signals (for example, a document request only counts when another warning sign exists).
+- **Every LLM call has retries and a fallback model**, so the app does not crash on an API error.
+- **A fixed workflow, not an agent.** The checks are known in advance, so a fixed order is cheaper and more reproducible.
 
 ## Features
 - Paste text or upload a PDF offer letter
@@ -38,6 +43,7 @@ Design choices:
 - Colour-coded verdict, risk score and evidence with severity badges
 - Follow-up chat ("Why is this suspicious?")
 - Feedback buttons (👍 / 👎) that can feed future test sets
+- Anonymous usage counts (no IP, no message text)
 - Scam-reporting guidance (cybercrime.gov.in, 1930 helpline)
 
 ## Screenshots
@@ -70,75 +76,111 @@ Design choices:
 </p>
 
 ## Tech stack
-Python · LangChain · Groq (`openai/gpt-oss-120b`) · Pydantic · Streamlit · python-whois · BeautifulSoup · tldextract · pypdf · pytest · Docker · AWS EC2
+Python · LangChain · Groq (`openai/gpt-oss-120b`, fallback `gpt-oss-20b`) · Pydantic · Streamlit · python-whois · BeautifulSoup · tldextract · pypdf · pytest · scikit-learn (experiments only) · Docker · AWS EC2
 
 ## Results
 
-"Tuned on" means I changed rules or prompts after seeing that set's failures, so the number is optimistic. "Unseen" means nothing was tuned on it.
+"Tuned on" means I changed rules or prompts after seeing that set's failures, so the number is optimistic. "Unseen" means nothing was tuned on it. Only the locked set was fully pre-registered.
 
-| Set | Version | Accuracy | Recall | False positive rate | Status |
-|---|---|---|---|---|---|
-| Main (45) | Rules v1 | 75.6% | 56.5% | 4.5% | baseline |
-| Main (45) | Hybrid v2, final | 97.8% | 95.7% | 0.0% | tuned on |
-| Fresh 1 (10) | Rules, before tuning | 50.0% | 0.0% | 0.0% | unseen |
-| Fresh 2 (10) | Rules only | 60.0% | 20.0% | 0.0% | unseen |
-| Fresh 2 (10) | Rules + LLM | 90.0% | 80.0% | 0.0% | prompt shaped after seeing it |
-| Final (16) | Rules only | 68.8% | 22.2% | 0.0% | unseen |
-| Final (16) | Hybrid, before fixes | 68.8% | 77.8% | 42.9% | unseen |
-| Final (16) | Hybrid, after fixes | 87.5% | 77.8% | 0.0% | tuned on |
-| **Clean (14)** | **Hybrid v2** | **78.6%** | **71.4%** | **14.3%** | **unseen, headline** |
+| Set | Version | Result | Status |
+|---|---|---|---|
+| **Locked (42 real)** | **Hybrid, as deployed** | **15/21 scams caught, 0/21 false alarms (acc 85.7%)** | **unseen, pre-registered, headline** |
+| Locked (42 real) | Logistic regression | 14/21 caught, 0/21 false alarms | comparison, no clear gain |
+| Clean (14) | Hybrid | 5/7 caught, 1/7 false alarm (acc 78.6%) | unseen at the time |
+| Final (16) | Rules only | recall 22.2%, FPR 0.0% | unseen |
+| Final (16) | Hybrid, before fixes | recall 77.8%, FPR 42.9% | unseen |
+| Final (16) | Hybrid, after fixes | recall 77.8%, FPR 0.0% | tuned on |
+| Fresh 1 (10) | Rules, before tuning | acc 50.0%, recall 0.0% | unseen |
+| Fresh 2 (10) | Rules only | acc 60.0%, recall 20.0% | unseen |
+| Main (45) | Rules v1 (baseline) | acc 75.6%, recall 56.5% | baseline |
+| Main (45) | Hybrid, final | acc 97.8%, recall 95.7% | tuned on |
 
-**Headline:** on 14 unseen real messages the tool caught 5 of 7 scams and wrongly flagged 1 of 7 genuine messages. With sets this small, one message moves accuracy by about 7 points, so treat these numbers as indicative.
+With sets this small, one message moves accuracy by 2 to 10 points, so treat all numbers as indicative. Full table with confusion counts: [RESULTS.md](RESULTS.md).
 
-Full table with confusion counts: [RESULTS.md](RESULTS.md).
-
-### What each component contributes (final set, 16 unseen messages)
+### What each component contributes (final set of 16, unseen)
 
 | Version | Recall | False positive rate |
 |---|---|---|
 | Rules only | 22.2% | 0.0% |
 | Rules + LLM chains (before fixes) | 77.8% | 42.9% |
 
-Rules never falsely accuse a company but miss polished scams. The LLM catches most of them but initially flagged routine platform emails, which I fixed by telling it about recruiting platforms and requiring corroboration for weak signals.
+Rules never falsely accuse a company but miss polished scams. The LLM catches most of them but needed a carefully worded prompt to avoid flagging routine platform emails.
+
+### Learned scoring experiment (development estimate)
+
+I compared my hand-tuned weights with an L2-regularised logistic regression (C=1) using repeated stratified 5-fold cross-validation on 95 messages.
+
+| Scorer | Accuracy | Recall | False positive rate |
+|---|---|---|---|
+| Hand-tuned rules (in-sample, optimistic) | 90.5% | 83.7% | 2.2% |
+| Logistic regression | 85.5% | 73.9% | 2.2% |
+
+The hand-tuned rules were written after seeing this data, so their figure is optimistic, and the confidence intervals overlap. On the locked set the learned model caught 14 of 21 scams versus 15-16 for the rules, again within noise. I found no clear gain from learning the weights, so I kept the transparent rules.
 
 ## What I learned
-- Numbers on sets I tuned on (90%+) did not predict performance on unseen sets (50-79%), so I report the unseen ones.
+- Numbers on sets I tuned on (90%+) did not predict performance on unseen sets (50-79%), so I report the unseen ones and pre-registered a locked set.
 - The LLM raised false positives on the main set (0% → 9.1%). I traced them to two weak signals, added a corroboration rule, and got back to 0%.
-- A hand-written allowlist of recruiting platforms generalises only as far as the list does.
+- A hand-written allowlist of recruiting platforms generalises only as far as the list does (Keka broke it).
+- The same LLM can flip one result between runs, so small differences between runs are noise.
 
-## Error analysis (clean set)
+## Error analysis (locked set, 6 missed scams)
 
-| Message | Result | Cause |
+| Message | Why it was missed |
+|---|---|
+| Edvirra | Polished text on its own domain, no payment request |
+| Workable / "PUMA" | Sent via a recruiting-platform domain that my allowlist treats as normal |
+| fresherjobsz | Fake job-portal domain with a generic "hall ticket" lure |
+| Tallymet | Polite interview invite pointing to WhatsApp |
+| naukriapply | Impersonates a known brand, but no pattern fired |
+| webboostsolutions | Free internship orientation with a stipend promise |
+
+Common theme: polished scams with no fee request, sensitive-data ask or odd domain. I left these unfixed so the locked result stays valid.
+
+## Input shielding and security tests
+
+Untrusted text (messages and PDFs) is sanitised before analysis: hidden and zero-width characters are removed, Unicode lookalikes are normalised, and fake `<message>` tags are stripped. Prompts wrap the message in tags and tell the model it is untrusted data. A message that tries to instruct the checker is itself scored as a scam signal.
+
+Rule-layer tests (no LLM calls) are in `test_security.py` (12 tests, all passing) and `security_demo.py`.
+
+| Case | Layer that acts | Rules-only verdict |
 |---|---|---|
-| Beacon Hill Search (scam) | Missed | Polished recruiter outreach, no rule fired, LLM treated it as normal |
-| Pacifica Companies (scam) | Missed | Polished text with only a weak signal |
-| Minfy Technologies (genuine) | False positive | Sent via Keka (`kekamail.com`), not in my platform allowlist, so the company-vs-domain and website rules fired |
+| Plain prompt injection | Injection detector, scored as a scam signal | LIKELY_SCAM (100) |
+| Zero-width obfuscated injection | Sanitiser removes hidden characters, then detector flags it | LIKELY_SCAM (80) |
+| Fullwidth lookalike letters | Unicode normalisation, then detector flags it | LIKELY_SCAM (80) |
+| Fake `</message>` delimiter break-out | Sanitiser strips the tag; payment and free-email rules score it | LIKELY_SCAM (90) |
+| Injection hidden in PDF text | Extracted text reaches the detector, which flags it | LIKELY_SCAM (80) |
+| Genuine message warning about fees | Negation handling | LIKELY_GENUINE (0) |
+| Genuine message using "ignore" and "instructions" | Specific detector patterns, no flag | LIKELY_GENUINE (15) |
+| Plain scam, no tricks | Phrase and pattern rules | LIKELY_SCAM (70) |
+
+**Limits:** regex guardrails reduce crude attacks; paraphrased injections can slip past. The PDF case tests extracted text only. Hidden text by font colour is not detected, and no real malicious PDF was tested. The LLM layer is protected by design (delimited prompts; the LLM can only add points, never lower a rule score), which is not covered by an automated test.
 
 ## Dataset
 
-95 messages across five files in `data/`: **75 real** and **20 synthetic**.
+137 messages in `data/`: **117 real** and **20 synthetic**.
 
-- `test_set.csv` (45): 25 real messages plus 20 synthetic messages written in the style of real offers.
-- `fresh_set.csv` (10), `fresh_set2.csv` (10), `final_set.csv` (16), `final_set2.csv` (14): all real messages.
+- `test_set.csv` (45): 25 real plus 20 synthetic messages written in the style of real offers.
+- `fresh_set.csv` (10), `fresh_set2.csv` (10), `final_set.csv` (16), `final_set2.csv` (14): all real.
+- `locked_set.csv` (42): all real, collected and committed before testing.
 
-The headline numbers come from the clean set, which is entirely real. Personal names, phone numbers and personal mailboxes were removed; company domains were kept because the tools check them. Company names are used only as realistic examples. The synthetic messages are fictional and do not come from the companies named.
+Personal names, phone numbers and personal mailboxes were removed; company domains were kept because the tools check them. Company names are used only as realistic examples. The synthetic messages are fictional and do not come from the companies named.
 
 ## Limitations and future work
 
 **Evaluation**
-- The headline number comes from 14 unseen real messages, so one message moves accuracy by about 7 points. Next step: collect 50+ real messages, using the feedback buttons as a source.
-- Rules and prompts were tuned on earlier sets, so only the clean set is a fair estimate. Next step: keep a locked test set that is never used for tuning.
+- The headline comes from 42 real messages, so one message moves accuracy by about 2.4 points and the recall interval is wide. Next step: collect more real messages, using the feedback buttons as a source.
+- Rules and prompts were tuned on the earlier sets, so only the locked set is a fair estimate. Next step: keep a fresh locked set for any future change.
 
 **Detection**
-- Polished scams with no payment request, odd domain or sensitive-data ask are often missed (for example Beacon Hill, Pacifica). Next step: add sender-reputation data and compare against known scam reports.
-- The recruiting-platform allowlist is hand-written, so legitimate senders outside it (such as Keka) can be flagged. Next step: replace it with a maintained list of platform sending domains.
+- Polished scams with no payment request, odd domain or sensitive-data ask are often missed. Next step: add sender-reputation data and compare against known scam reports.
+- The recruiting-platform allowlist is hand-written, so legitimate senders outside it (such as Keka) can be flagged. Next step: a maintained list of platform sending domains.
 
 **Data sources**
-- WHOIS can fail or be blocked, and some large sites block bots. These are treated as "unknown", not as suspicious, so they never raise a score by themselves.
-- PDF upload supports text PDFs only (no OCR) and was tried on a few letters, not evaluated. Next step: add OCR for scanned letters and image screenshots.
+- WHOIS can fail or be blocked, and some large sites block bots. These are treated as "unknown", not suspicious.
+- PDF upload supports text PDFs only (no OCR) and was tried on a few letters, not evaluated. Next step: OCR for scanned letters and screenshots.
 
 **Scope**
-- This is an advisory tool. It cannot confirm that an offer is genuine, so users should still verify the company on its official website.
+- Advisory tool. It cannot confirm that an offer is genuine, so users should still verify the company on its official website. The demo link is HTTP only.
 
 ## Run locally
 
@@ -160,9 +202,9 @@ Then:
 
 ```bash
 streamlit run app.py
-pytest test_rules.py
+pytest test_rules.py test_guardrails.py test_security.py
 python evaluate.py data/test_set.csv
-python evaluate_hybrid.py data/final_set2.csv
+python evaluate_hybrid.py data/locked_set.csv
 ```
 
 ## Run with Docker
@@ -177,17 +219,16 @@ The live demo runs this way on an AWS EC2 instance (ap-southeast-2).
 ## Project structure
 
 ```
-app.py            Streamlit UI
-pipeline.py       tools, scoring, LangChain chains
-tools.py          WHOIS, email, phrase and pattern checks
-schemas.py        Pydantic models
-evaluate*.py      evaluation scripts
-test_rules.py     unit tests
-Dockerfile        container image for deployment
-data/             test sets
-ss/               screenshots
-prototype/        first version: a tool-calling LangChain agent
-scripts/          helper scripts
+app.py             Streamlit UI
+pipeline.py        scoring and LangChain chains
+tools.py           WHOIS (cached), email, phrase and pattern checks
+guardrails.py      input sanitising and injection detection
+schemas.py         Pydantic models
+evaluate*.py       evaluation scripts
+experiments/       feature extraction and cross-validation experiment
+test_*.py          unit and security tests
+Dockerfile         container image for deployment
+data/              test sets
+ss/                screenshots
+scripts/           helper scripts
 ```
-
-`prototype/` holds my first version (a full tool-calling agent). I moved to a deterministic pipeline because the agent used far more tokens and was less consistent.
