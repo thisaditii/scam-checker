@@ -2,9 +2,9 @@
 
 Students get fake internship and job offers that ask for fees, documents or bank details. Paste an offer message (or upload the offer letter as a PDF) and get a risk verdict with evidence and advice **before** you reply or pay.
 
-**Live demo:** [http://3.27.3.252:8501](http://3.27.3.252:8501)
+**Live demo:** [https://jobscamchecker.duckdns.org.](https://jobscamchecker.duckdns.org.)
 
-*Hosted on AWS EC2 with Docker. The link is HTTP only, so please don't paste real personal details. If the link is down, run it locally using the steps below.*
+*Hosted on AWS EC2 with Docker, served over HTTPS (Caddy and Let's Encrypt). Please don't paste real personal details. If the link is down, run it locally using the steps below.*
 
 **Headline result:** on a locked set of 42 unseen real messages (written down before testing), the tool caught **15 of 21 scams with 0 false alarms**. Small sample, so treat it as indicative. Details in [RESULTS.md](RESULTS.md).
 
@@ -76,7 +76,7 @@ Design choices:
 </p>
 
 ## Tech stack
-Python · LangChain · Groq (`openai/gpt-oss-120b`, fallback `gpt-oss-20b`) · Pydantic · Streamlit · python-whois · BeautifulSoup · tldextract · pypdf · pytest · scikit-learn (experiments only) · Docker · AWS EC2
+Python · LangChain · Groq (`openai/gpt-oss-120b`, fallback `gpt-oss-20b`) · Pydantic · Streamlit · python-whois · BeautifulSoup · tldextract · pypdf · pytest · scikit-learn (experiments only) · Docker · AWS EC2 · Caddy (HTTPS reverse proxy, Let's Encrypt)
 
 ## Results
 
@@ -140,7 +140,7 @@ Common theme: polished scams with no fee request, sensitive-data ask or odd doma
 
 Untrusted text (messages and PDFs) is sanitised before analysis: hidden and zero-width characters are removed, Unicode lookalikes are normalised, and fake `<message>` tags are stripped. Prompts wrap the message in tags and tell the model it is untrusted data. A message that tries to instruct the checker is itself scored as a scam signal.
 
-Rule-layer tests (no LLM calls) are in `test_security.py` (12 tests, all passing) and `security_demo.py`.
+Rule-layer tests (no LLM calls) are in `test_security.py` (12 tests) and `security_demo.py`. The full suite (`test_rules.py`, `test_guardrails.py`, `test_security.py`) has 25 passing tests.
 
 | Case | Layer that acts | Rules-only verdict |
 |---|---|---|
@@ -180,7 +180,8 @@ Personal names, phone numbers and personal mailboxes were removed; company domai
 - PDF upload supports text PDFs only (no OCR) and was tried on a few letters, not evaluated. Next step: OCR for scanned letters and screenshots.
 
 **Scope**
-- Advisory tool. It cannot confirm that an offer is genuine, so users should still verify the company on its official website. The demo link is HTTP only.
+- Advisory tool. It cannot confirm that an offer is genuine, so users should still verify the company on its official website.
+- Single-instance demo deployment with a free subdomain; the usage log and feedback live on the server only.
 
 ## Run locally
 
@@ -207,14 +208,15 @@ python evaluate.py data/test_set.csv
 python evaluate_hybrid.py data/locked_set.csv
 ```
 
-## Run with Docker
+## Deployment
+
+The app runs in Docker on an AWS EC2 instance (ap-southeast-2). Caddy sits in front as a reverse proxy and obtains a free Let's Encrypt certificate, so the public site is served over HTTPS. SSH is restricted to a single IP, and the API key lives only in a server-side `.env` file that is never committed or baked into the image.
 
 ```bash
 docker build -t scam-checker .
-docker run -d -p 8501:8501 --env-file .env scam-checker
+docker run -d --name scam-checker -p 8501:8501 --env-file .env \
+  -v ~/scam-data:/app/data/usage --restart unless-stopped scam-checker
 ```
-
-The live demo runs this way on an AWS EC2 instance (ap-southeast-2).
 
 ## Project structure
 
@@ -225,10 +227,10 @@ tools.py           WHOIS (cached), email, phrase and pattern checks
 guardrails.py      input sanitising and injection detection
 schemas.py         Pydantic models
 evaluate*.py       evaluation scripts
+security_demo.py   security test demo table
 experiments/       feature extraction and cross-validation experiment
 test_*.py          unit and security tests
 Dockerfile         container image for deployment
 data/              test sets
 ss/                screenshots
-scripts/           helper scripts
 ```
