@@ -2,7 +2,7 @@
 
 Students get fake internship and job offers that ask for fees, documents or bank details. Paste an offer message (or upload the offer letter as a PDF) and get a risk verdict with evidence and advice **before** you reply or pay.
 
-**Live demo:** [https://jobscamchecker.duckdns.org.](https://jobscamchecker.duckdns.org.)
+**Live demo:** [https://jobscamchecker.duckdns.org](https://jobscamchecker.duckdns.org)
 
 *Hosted on AWS EC2 with Docker, served over HTTPS (Caddy and Let's Encrypt). Please don't paste real personal details. If the link is down, run it locally using the steps below.*
 
